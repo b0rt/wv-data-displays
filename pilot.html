@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Installation – Master Control</title>
+<title>Installation – Pilot Control</title>
 <style>
   /* Local fonts */
   @font-face {
@@ -685,12 +685,12 @@ let uploadedImageData = null; // base64 image data
 
 function connect() {
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  ws = new WebSocket(`${protocol}//${location.host}?role=master`);
+  ws = new WebSocket(`${protocol}//${location.host}?role=pilot`);
 
   ws.onopen = () => {
     document.getElementById('ws-dot').classList.add('ok');
     document.getElementById('ws-label').textContent = 'Verbunden';
-    log('Master verbunden');
+    log('Pilot verbunden');
   };
 
   ws.onclose = () => {

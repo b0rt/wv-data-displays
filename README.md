@@ -1,14 +1,14 @@
 # 🖥️ Laptop Installation – Multi-Display WebSocket System
 
 Interaktive Installation: 10 Laptops zeigen synchron Texte, Bilder und Effekte,
-gesteuert von einem Master-Computer im selben LAN.
+gesteuert von einem Pilot-Computer im selben LAN.
 
 ## Architektur
 
 ```
   ┌──────────────┐      WebSocket       ┌────────────────┐
-  │   Master UI  │ ──────────────────── │   Node.js      │
-  │  /master     │                      │   Server       │
+  │   Pilot UI   │ ──────────────────── │   Node.js      │
+  │  /pilot      │                      │   Server       │
   └──────────────┘                      │   :3000        │
                                         └───────┬────────┘
                                                 │ WebSocket
@@ -52,15 +52,15 @@ http://<SERVER-IP>:3000/
 ```
 → Klick auf "Vollbild" für Kiosk-Modus
 
-### 6. Master öffnen
+### 6. Pilot öffnen
 Auf dem Steuer-Computer:
 ```
-http://<SERVER-IP>:3000/master
+http://<SERVER-IP>:3000/pilot
 ```
 
 ## Features
 
-### Master Control Panel
+### Pilot Control Panel
 - **Text senden** – mit Animationen (Fade, Schreibmaschine, Slide)
 - **Bilder senden** – per URL
 - **Hintergrundfarbe** – auf allen oder einzelnen Displays
@@ -69,7 +69,7 @@ http://<SERVER-IP>:3000/master
 - **Wörter verteilen** – ein Satz wird auf alle Displays aufgeteilt
 - **Zielauswahl** – alle Displays oder einzelne ansprechen
 
-### Keyboard Shortcuts (Master)
+### Keyboard Shortcuts (Pilot)
 - `Ctrl+Enter` – Text senden
 - `Escape` – Alle Displays leeren
 

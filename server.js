@@ -95,8 +95,8 @@ const clientServer = http.createServer((req, res) => {
   // Serve static files
   if (req.url === "/" || req.url === "/client") {
     serveFile(res, path.join(__dirname, "client.html"), "text/html");
-  } else if (req.url === "/master") {
-    serveFile(res, path.join(__dirname, "master.html"), "text/html");
+  } else if (req.url === "/pilot") {
+    serveFile(res, path.join(__dirname, "pilot.html"), "text/html");
   } else if (req.url.startsWith("/fonts/")) {
     const fontPath = path.join(__dirname, req.url);
     const ext = path.extname(req.url).toLowerCase();
@@ -120,12 +120,12 @@ wss.on("connection", (ws, req) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
   const role = url.searchParams.get("role") || "client";
 
-  if (role === "master") {
-    console.log("🎛️  Master connected");
+  if (role === "pilot") {
+    console.log("🎛️  Pilot connected");
 
-    ws.isMaster = true;
+    ws.isPilot = true;
 
-    // Send current client list to master
+    // Send current client list to pilot
     ws.send(JSON.stringify({
       type: "client-list",
       clients: Array.from(clients.values())
@@ -134,14 +134,14 @@ wss.on("connection", (ws, req) => {
     ws.on("message", (data) => {
       try {
         const msg = JSON.parse(data);
-        handleMasterMessage(msg);
+        handlePilotMessage(msg);
       } catch (e) {
-        console.error("Invalid master message:", e);
+        console.error("Invalid pilot message:", e);
       }
     });
 
     ws.on("close", () => {
-      console.log("🎛️  Master disconnected");
+      console.log("🎛️  Pilot disconnected");
     });
   } else {
     // Client
@@ -172,8 +172,8 @@ wss.on("connection", (ws, req) => {
       }));
     }
 
-    // Notify master about new client
-    broadcastToMasters({
+    // Notify pilot about new client
+    broadcastToPilots({
       type: "client-list",
       clients: Array.from(clients.values())
     });
@@ -181,7 +181,7 @@ wss.on("connection", (ws, req) => {
     ws.on("close", () => {
       clients.delete(ws);
       console.log(`💻 Client disconnected (${clients.size} remaining)`);
-      broadcastToMasters({
+      broadcastToPilots({
         type: "client-list",
         clients: Array.from(clients.values())
       });
@@ -194,7 +194,7 @@ wss.on("connection", (ws, req) => {
         if (msg.type === "set-name") {
           clientInfo.name = msg.name;
           clients.set(ws, clientInfo);
-          broadcastToMasters({
+          broadcastToPilots({
             type: "client-list",
             clients: Array.from(clients.values())
           });
@@ -204,7 +204,7 @@ wss.on("connection", (ws, req) => {
   }
 });
 
-function handleMasterMessage(msg) {
+function handlePilotMessage(msg) {
   switch (msg.type) {
     case "send-text": {
       const content = {
@@ -380,10 +380,10 @@ function broadcastToClients(content) {
   }
 }
 
-function broadcastToMasters(msg) {
+function broadcastToPilots(msg) {
   const data = JSON.stringify(msg);
   wss.clients.forEach((ws) => {
-    if (ws.isMaster && ws.readyState === 1) {
+    if (ws.isPilot && ws.readyState === 1) {
       ws.send(data);
     }
   });
@@ -396,9 +396,9 @@ clientServer.listen(PORT, "0.0.0.0", () => {
 ╠══════════════════════════════════════════════════╣
 ║                                                  ║
 ║  Client URL:  http://<YOUR-IP>:${PORT}/          ║
-║  Master URL:  http://<YOUR-IP>:${PORT}/master    ║
+║  Pilot URL:   http://<YOUR-IP>:${PORT}/pilot     ║
 ║                                                  ║
-║  Open /master on your control computer           ║
+║  Open /pilot on your control computer            ║
 ║  Open / on all 10 laptops                        ║
 ║                                                  ║
 ╚══════════════════════════════════════════════════╝

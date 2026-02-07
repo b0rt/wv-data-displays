@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-WV Data Displays is a WebSocket-based multi-display installation system for controlling multiple laptop screens from a single master control panel. Designed for LAN-based operation without internet dependency.
+WV Data Displays is a WebSocket-based multi-display installation system for controlling multiple laptop screens from a single pilot control panel. Designed for LAN-based operation without internet dependency.
 
 ## Commands
 
@@ -18,12 +18,12 @@ npm start
 
 **Access URLs:**
 - Client displays: `http://<IP>:3000/`
-- Master control: `http://<IP>:3000/master`
+- Pilot control: `http://<IP>:3000/pilot`
 
 ## Architecture
 
 ```
-Master Control Panel (browser)
+Pilot Control Panel (browser)
          ↓ WebSocket
    Node.js HTTP Server (port 3000)
          ↓ WebSocket
@@ -33,7 +33,7 @@ Master Control Panel (browser)
 **Files:**
 - `server.js` - HTTP + WebSocket server, handles client registration, message routing, content history, and static file serving
 - `client.html` - Display interface with animations, effects, auto-reconnect, and idle breathing animation
-- `master.html` - Control panel with client list, content controls, and activity logging
+- `pilot.html` - Control panel with client list, content controls, and activity logging
 - `scripts/copy-fonts.js` - Postinstall script that copies fonts from node_modules to `/fonts`
 
 ## Communication Protocol
@@ -48,7 +48,7 @@ JSON messages over WebSocket with structure:
 ```
 
 **Key server functions:**
-- `handleMasterMessage()` - Routes master commands to clients
+- `handlePilotMessage()` - Routes pilot commands to clients
 - Client state tracked with auto-incrementing IDs ("Laptop N" naming)
 - Content history replicated to newly connected clients
 
@@ -61,9 +61,9 @@ JSON messages over WebSocket with structure:
 
 ## Extending
 
-1. Add new message type to `server.js` in `handleMasterMessage()` switch statement
+1. Add new message type to `server.js` in `handlePilotMessage()` switch statement
 2. Add corresponding handler in `client.html` `handleMessage()` function
-3. Add UI controls in `master.html` if needed
+3. Add UI controls in `pilot.html` if needed
 
 ## Notes
 
