@@ -5,7 +5,9 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "postinstall": "node scripts/copy-fonts.js"
+    "build": "cd pilot && npm run build",
+    "build:pilot": "cd pilot && npm run build",
+    "postinstall": "node scripts/copy-fonts.js && cd pilot && npm install"
   },
   "dependencies": {
     "@fontsource/jetbrains-mono": "^5.0.0",

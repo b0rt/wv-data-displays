@@ -1,4 +1,6 @@
 /node_modules/
 /fonts/
 /uploads/
+/dist/
+/pilot/node_modules/
 .idea/

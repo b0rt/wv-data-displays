@@ -96,7 +96,17 @@ const clientServer = http.createServer((req, res) => {
   if (req.url === "/" || req.url === "/client") {
     serveFile(res, path.join(__dirname, "client.html"), "text/html");
   } else if (req.url === "/pilot") {
-    serveFile(res, path.join(__dirname, "pilot.html"), "text/html");
+    // Serve Vue app
+    serveFile(res, path.join(__dirname, "dist/pilot/index.html"), "text/html");
+  } else if (req.url.startsWith("/pilot/") || req.url.startsWith("/assets/")) {
+    // Serve Vue app assets
+    const assetPath = req.url.startsWith("/pilot/")
+      ? req.url.replace("/pilot/", "/")
+      : req.url;
+    const filePath = path.join(__dirname, "dist/pilot", assetPath);
+    const ext = path.extname(req.url).toLowerCase();
+    const contentType = mimeTypes[ext] || "application/octet-stream";
+    serveFile(res, filePath, contentType);
   } else if (req.url.startsWith("/fonts/")) {
     const fontPath = path.join(__dirname, req.url);
     const ext = path.extname(req.url).toLowerCase();
