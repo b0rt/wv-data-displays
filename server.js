@@ -49,7 +49,10 @@ const mimeTypes = {
   ".mp4": "video/mp4",
   ".webm": "video/webm",
   ".ogg": "video/ogg",
-  ".mov": "video/quicktime"
+  ".mov": "video/quicktime",
+  ".wasm": "application/wasm",
+  ".tflite": "application/octet-stream",
+  ".json": "application/json"
 };
 
 // --- Client HTTP Server (port 3000) ---

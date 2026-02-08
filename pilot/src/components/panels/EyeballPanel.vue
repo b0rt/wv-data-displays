@@ -4,6 +4,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
+import { FilesetResolver, FaceDetector } from '@mediapipe/tasks-vision'
 import type { Client } from '@/composables/useWebSocket'
 
 const props = defineProps<{
@@ -25,12 +26,13 @@ const bgColor = ref('#0a0a0a')
 const tracking = ref(false)
 const videoRef = ref<HTMLVideoElement | null>(null)
 const canvasRef = ref<HTMLCanvasElement | null>(null)
-const detector = ref<any>(null)
-const trackingInterval = ref<number | null>(null)
 const faceDetected = ref(false)
 const lastFacePos = ref({ x: 0, y: 0 })
 const isInitializing = ref(false)
-const tfLock = ref(false)
+
+let detector: FaceDetector | null = null
+let lastVideoTime = -1
+let animFrameId: number | null = null
 
 // Display configurations
 const displayConfigs = ref<Record<number, { x: number; y: number; z: number; rotation: number }>>({})
@@ -98,25 +100,28 @@ function hideEyeball() {
 }
 
 async function startTracking() {
-  if (tracking.value || isInitializing.value || tfLock.value) return
+  if (tracking.value || isInitializing.value) return
+
+  // Auto-show eyeball if not already active
+  if (!eyeballActive.value) {
+    showEyeball()
+  }
 
   isInitializing.value = true
-  tfLock.value = true
   emit('log', 'Initialisiere Face Detection...')
 
   try {
-    // 1. Get webcam first (most likely to fail/timeout)
+    // 1. Get webcam
     emit('log', 'Starte Webcam...')
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: { 
-        width: { ideal: 640 }, 
-        height: { ideal: 480 }, 
-        facingMode: 'user' 
+      video: {
+        width: { ideal: 640 },
+        height: { ideal: 480 },
+        facingMode: 'user'
       }
     })
 
-    // Check if we were stopped while waiting for the camera
-    if (!isInitializing.value || !eyeballActive.value) {
+    if (!isInitializing.value) {
       emit('log', 'Webcam gestoppt (Initialisierung abgebrochen)')
       stream.getTracks().forEach(track => track.stop())
       return
@@ -124,387 +129,147 @@ async function startTracking() {
 
     if (videoRef.value) {
       videoRef.value.srcObject = stream
-      
-      // Wait for metadata with timeout
-      await new Promise((resolve, reject) => {
-        if (!videoRef.value) return resolve(null)
-        if (videoRef.value.readyState >= 1) return resolve(null)
-        
+
+      await new Promise<void>((resolve, reject) => {
+        if (!videoRef.value) return resolve()
+        if (videoRef.value.readyState >= 1) return resolve()
+
         const timeout = setTimeout(() => {
-          if (videoRef.value) videoRef.value.onloadedmetadata = null
           reject(new Error('Timeout beim Laden der Video-Metadaten'))
         }, 10000)
-        
+
         videoRef.value.onloadedmetadata = () => {
           clearTimeout(timeout)
-          resolve(null)
+          resolve()
         }
       })
-      
-      try {
-        await videoRef.value.play()
-      } catch (playError) {
-        console.warn('Video play error:', playError)
-        // Many browsers require user gesture for play() if not muted, 
-        // but we should be muted. Try again just in case.
-        if (videoRef.value) {
-          videoRef.value.muted = true
-          await videoRef.value.play()
-        }
-      }
+
+      await videoRef.value.play()
     }
 
-    // 2. Initialize TensorFlow.js
-    // Check if TensorFlow.js and BlazeFace are loaded (via script tags)
-    // @ts-ignore - global tf and blazeface from script tags
-    if (typeof window.tf === 'undefined' || typeof window.blazeface === 'undefined') {
-      throw new Error('TensorFlow.js nicht geladen. Bitte Seite neu laden.')
-    }
+    // 2. Initialize MediaPipe Face Detector
+    emit('log', 'Lade MediaPipe Vision...')
+    const vision = await FilesetResolver.forVisionTasks('/lib/mediapipe/wasm')
 
-    // @ts-ignore
-    const tf = window.tf
-    // @ts-ignore
-    const blazeface = window.blazeface
-
-    // Explicitly set WebGL backend and wait for it to be ready
-    emit('log', 'Initialisiere WebGL Backend...')
-    
-    try {
-      // Set environment flags for better performance and stability
-      tf.env().set('WEBGL_PACK', true)
-      // Be conservative with texture deletion to avoid race conditions with internal BlazeFace tensors
-      tf.env().set('WEBGL_DELETE_TEXTURE_THRESHOLD', -1) 
-      
-      // Ensure we are starting fresh
-      await tf.ready()
-      
-      // Force webgl if possible
-      try {
-        await tf.setBackend('webgl')
-        await tf.ready()
-      } catch (e) {
-        console.warn('WebGL initialization failed, checking current backend', e)
-      }
-
-      if (tf.getBackend() !== 'webgl') {
-        emit('log', '⚠ WebGL nicht verfügbar, nutze CPU (langsamer)...')
-        await tf.setBackend('cpu')
-        await tf.ready()
-      }
-    } catch (backendError) {
-      emit('log', `⚠ Backend-Fehler: ${(backendError as Error).message}`)
-      throw backendError
-    }
-    
-    emit('log', `TensorFlow.js Backend: ${tf.getBackend()}`)
-
-    // 3. Load BlazeFace model
-    emit('log', 'Lade BlazeFace Model...')
-    
-    // Ensure TF is ready before loading model
-    await tf.ready()
-    
-    detector.value = await blazeface.load({
-      modelUrl: '/lib/blazeface-model/model.json'
+    emit('log', 'Lade Face Detection Model...')
+    detector = await FaceDetector.createFromOptions(vision, {
+      baseOptions: {
+        modelAssetPath: '/lib/mediapipe/blaze_face_short_range.tflite',
+        delegate: 'GPU'
+      },
+      runningMode: 'VIDEO',
+      minDetectionConfidence: 0.5
     })
 
-    // Warmup the model
-    try {
-      emit('log', 'Wärme Modell auf...')
-      // Give it a moment to stabilize
-      await new Promise(resolve => setTimeout(resolve, 300))
-      
-      const warmupInput = (videoRef.value && videoRef.value.readyState >= 2) 
-        ? videoRef.value 
-        : document.createElement('canvas')
-      
-      if (warmupInput instanceof HTMLCanvasElement) {
-        warmupInput.width = 128
-        warmupInput.height = 128
-      }
-      
-      await detector.value.estimateFaces(warmupInput, false)
-      emit('log', 'Warmup erfolgreich')
-    } catch (e) {
-      console.warn('Warmup failed:', e)
-      const errorMessage = e instanceof Error ? e.message : String(e)
-      if (errorMessage.includes('backend') || errorMessage.includes('defined')) {
-        throw new Error(`Warmup-Backend-Fehler: ${errorMessage}`)
-      }
-    }
-
     tracking.value = true
+    lastVideoTime = -1
     emit('log', 'Face Tracking gestartet')
 
     // Start detection loop
     detectFaces()
   } catch (err) {
-    emit('log', `⚠ Fehler: ${(err as Error).message}`)
+    emit('log', `Fehler: ${(err as Error).message}`)
     console.error('Face tracking error:', err)
     stopTracking()
-    
-    // Auto-recovery attempt if it was a backend or camera error during initialization
-    const errorMessage = (err as Error).message || String(err)
-    const errorName = (err as any).name || ''
-    
-    if (
-      errorMessage.includes('backend') || 
-      errorMessage.includes('defined') || 
-      errorMessage.includes('Warmup') ||
-      errorMessage.includes('Timeout') ||
-      errorName === 'AbortError' ||
-      errorName === 'NotReadableError'
-    ) {
-      setTimeout(() => {
-        if (!tracking.value && eyeballActive.value) {
-          emit('log', 'Versuche Neustart nach Initialisierungsfehler...')
-          startTracking()
-        }
-      }, 5000) // Delay for recovery
-    }
   } finally {
     isInitializing.value = false
-    tfLock.value = false
   }
 }
 
-async function detectFaces() {
-  if (!tracking.value || !detector.value || !videoRef.value || tfLock.value) {
-    if (tracking.value) {
-      setTimeout(() => requestAnimationFrame(detectFaces), 50)
-    }
-    return
-  }
+function detectFaces() {
+  if (!tracking.value || !detector || !videoRef.value) return
 
-  tfLock.value = true
-  
-  try {
-    // Ensure video is ready
-    if (videoRef.value.readyState < 2) {
-      tfLock.value = false
-      requestAnimationFrame(detectFaces)
-      return
-    }
+  if (videoRef.value.readyState >= 2 && videoRef.value.currentTime !== lastVideoTime) {
+    lastVideoTime = videoRef.value.currentTime
 
-    // @ts-ignore
-    const tf = window.tf
-    if (!tf || !detector.value) {
-      tfLock.value = false
-      return
-    }
-
-    // Log memory occasionally
-    if (Math.random() < 0.01) {
-      console.log('TF Memory:', tf.memory())
-    }
-    
-    // BlazeFace returns predictions array
-    let predictions = []
     try {
-      // EXTRA GUARD: Check again before calling estimateFaces
-      if (tracking.value && detector.value) {
-        // Use a local reference to the video element to avoid potential nulling during await
-        const videoElement = videoRef.value
-        if (videoElement && videoElement.videoWidth > 0) {
-          // Double check backend is still valid and not lost
-          const backend = tf.backend()
-          if (tf.getBackend() === 'webgl' && backend && typeof (backend as any).getGPGPUContext === 'function') {
-            const gl = (backend as any).getGPGPUContext().gl
-            if (gl && gl.isContextLost()) {
-              throw new Error('WebGL context lost')
-            }
-          }
+      const result = detector.detectForVideo(videoRef.value, performance.now())
 
-          if (tf.getBackend() && backend) {
-            // estimateFaces is async, BlazeFace handles its own internal tensors
-            predictions = await detector.value.estimateFaces(videoElement, false)
-          } else {
-            throw new Error('Backend lost before estimation')
+      const face = result.detections[0]
+      if (face && face.boundingBox) {
+        faceDetected.value = true
+        const box = face.boundingBox
+
+        const centerX = box.originX + box.width / 2
+        const centerY = box.originY + box.height / 2
+
+        // Normalize to -1 to 1 (invert X for mirror effect)
+        const videoWidth = videoRef.value.videoWidth || 640
+        const videoHeight = videoRef.value.videoHeight || 480
+        const normalizedX = -((centerX / videoWidth) * 2 - 1)
+        const normalizedY = -((centerY / videoHeight) * 2 - 1)
+
+        // Estimate depth from face size (larger face = closer)
+        const faceSize = box.width * box.height
+        const normalizedZ = Math.max(1, 10 - (faceSize / 10000))
+
+        lastFacePos.value = { x: normalizedX, y: normalizedY }
+
+        // Send gaze update
+        emit('send', {
+          type: 'eyeball-gaze',
+          target: 'all',
+          x: normalizedX * 3,
+          y: normalizedY * 2,
+          z: normalizedZ
+        })
+
+        // Draw on canvas for preview
+        if (canvasRef.value) {
+          const ctx = canvasRef.value.getContext('2d')
+          if (ctx) {
+            ctx.clearRect(0, 0, 160, 120)
+            ctx.drawImage(videoRef.value, 0, 0, 160, 120)
+            ctx.strokeStyle = '#00ff00'
+            ctx.lineWidth = 2
+            ctx.strokeRect(
+              box.originX / (videoWidth / 160),
+              box.originY / (videoHeight / 120),
+              box.width / (videoWidth / 160),
+              box.height / (videoHeight / 120)
+            )
           }
         }
+      } else {
+        faceDetected.value = false
       }
-    } catch (e) {
-      console.error('BlazeFace estimation error:', e)
-      // If backend is lost, try to recover
-      const errorMessage = e instanceof Error ? e.message : String(e)
-      if (
-        errorMessage.includes('backend') || 
-        errorMessage.includes('defined') || 
-        errorMessage.includes('context lost') ||
-        errorMessage.includes('Timeout')
-      ) {
-        emit('log', '⚠ Backend verloren, versuche Recovery...')
-        tfLock.value = false
-        stopTracking()
-        
-        // Auto-recovery attempt
-        setTimeout(() => {
-          if (!tracking.value && eyeballActive.value) {
-            emit('log', 'Versuche Neustart nach Fehler...')
-            startTracking()
-          }
-        }, 3000)
-        return
-      }
+    } catch (err) {
+      console.error('Detection error:', err)
     }
-
-    if (predictions.length > 0) {
-      faceDetected.value = true
-      const face = predictions[0]
-
-      // BlazeFace provides topLeft and bottomRight as arrays [x, y]
-      const topLeft: number[] = Array.isArray(face.topLeft) ? face.topLeft : [0, 0]
-      const bottomRight: number[] = Array.isArray(face.bottomRight) ? face.bottomRight : [0, 0]
-
-      const width = (bottomRight[0] ?? 0) - (topLeft[0] ?? 0)
-      const height = (bottomRight[1] ?? 0) - (topLeft[1] ?? 0)
-
-      // Calculate center of face
-      const centerX = (topLeft[0] ?? 0) + width / 2
-      const centerY = (topLeft[1] ?? 0) + height / 2
-
-      // Normalize to -1 to 1 (invert X for mirror effect)
-      const normalizedX = -((centerX / 640) * 2 - 1)
-      const normalizedY = -((centerY / 480) * 2 - 1)
-
-      // Estimate depth from face size (larger face = closer)
-      const faceSize = width * height
-      const normalizedZ = Math.max(1, 10 - (faceSize / 10000))
-
-      lastFacePos.value = { x: normalizedX, y: normalizedY }
-
-      // Send gaze update
-      emit('send', {
-        type: 'eyeball-gaze',
-        target: 'all',
-        x: normalizedX * 3, // Scale to room coordinates
-        y: normalizedY * 2,
-        z: normalizedZ
-      })
-
-      // Draw on canvas for preview
-      if (canvasRef.value) {
-        const ctx = canvasRef.value.getContext('2d')
-        if (ctx) {
-          ctx.clearRect(0, 0, 160, 120)
-          ctx.drawImage(videoRef.value, 0, 0, 160, 120)
-          ctx.strokeStyle = '#00ff00'
-          ctx.lineWidth = 2
-          ctx.strokeRect(
-            (topLeft[0] ?? 0) / 4,
-            (topLeft[1] ?? 0) / 4,
-            width / 4,
-            height / 4
-          )
-        }
-      }
-    } else {
-      faceDetected.value = false
-    }
-  } catch (err) {
-    console.error('Detection error:', err)
-  } finally {
-    tfLock.value = false
   }
 
-  // Continue loop with throttling
+  // Continue loop (~20 FPS)
   if (tracking.value) {
-    // Check one more time before scheduling next frame
-    setTimeout(() => {
-      if (tracking.value) {
-        requestAnimationFrame(detectFaces)
-      }
-    }, 50) // ~20 FPS
+    animFrameId = requestAnimationFrame(() => {
+      setTimeout(detectFaces, 50)
+    })
   }
 }
 
-async function stopTracking() {
-  if (!tracking.value && !isInitializing.value) return
-  
+function stopTracking() {
   tracking.value = false
   isInitializing.value = false
   faceDetected.value = false
 
-  // Wait for lock to be free (max 1s)
-  let waitStart = Date.now()
-  while (tfLock.value && Date.now() - waitStart < 1000) {
-    await new Promise(resolve => setTimeout(resolve, 50))
+  if (animFrameId !== null) {
+    cancelAnimationFrame(animFrameId)
+    animFrameId = null
   }
-  
-  tfLock.value = true
-  
-  try {
-    // First null the detector so no more inference can start
-    const currentDetector = detector.value
-    detector.value = null
 
-    // Ensure any pending engine scopes are cleared immediately
-    // @ts-ignore
-    const tf = window.tf
-    if (tf && tf.engine) {
-      try {
-        while (tf.engine().state.scopeStack.length > 0) {
-          tf.engine().endScope()
-        }
-      } catch (e) {}
-    }
+  if (videoRef.value?.srcObject) {
+    const stream = videoRef.value.srcObject as MediaStream
+    stream.getTracks().forEach(track => track.stop())
+    videoRef.value.srcObject = null
+  }
 
-    if (videoRef.value?.srcObject) {
-      const stream = videoRef.value.srcObject as MediaStream
-      stream.getTracks().forEach(track => track.stop())
-      videoRef.value.srcObject = null
-    }
+  if (canvasRef.value) {
+    const ctx = canvasRef.value.getContext('2d')
+    if (ctx) ctx.clearRect(0, 0, 160, 120)
+  }
 
-    if (trackingInterval.value) {
-      clearInterval(trackingInterval.value)
-      trackingInterval.value = null
-    }
-
-    // Clear canvas
-    if (canvasRef.value) {
-      const ctx = canvasRef.value.getContext('2d')
-      if (ctx) ctx.clearRect(0, 0, 160, 120)
-    }
-
-    // Dispose of detector if possible to free up WebGL memory
-    if (currentDetector && typeof currentDetector.dispose === 'function') {
-      try {
-        currentDetector.dispose()
-      } catch (e) {
-        console.warn('detector dispose failed', e)
-      }
-    }
-    
-    // Clean up global TF state safely
-    if (tf) {
-      try {
-        // Clear out any remaining engine scopes (already done above but safe to repeat)
-        if (typeof tf.engine === 'function') {
-          try {
-            while (tf.engine().state.scopeStack.length > 0) {
-              tf.engine().endScope()
-            }
-          } catch (e) {}
-        }
-        
-        // Aggressively clear textures if we have many
-        if (tf.getBackend() === 'webgl') {
-          // @ts-ignore
-          const numTextures = tf.memory().numTextures
-          if (numTextures > 100) {
-            console.log(`Cleaning up ${numTextures} textures...`)
-            // This is a bit of a hack but can help force GC
-            if (typeof tf.disposeVariables === 'function') {
-              // tf.disposeVariables() // Still risky, but maybe necessary if numTextures is huge
-            }
-          }
-        }
-      } catch (e) {
-        console.warn('tf cleanup failed', e)
-      }
-    }
-  } finally {
-    tfLock.value = false
+  if (detector) {
+    detector.close()
+    detector = null
   }
 
   emit('log', 'Face Tracking gestoppt')
@@ -550,7 +315,7 @@ onUnmounted(() => {
 
         <div class="flex gap-2">
           <Button @click="showEyeball" :disabled="eyeballActive">
-            👁️ Eyeball anzeigen
+            Eyeball anzeigen
           </Button>
           <Button variant="outline" @click="hideEyeball" :disabled="!eyeballActive">
             Ausblenden
@@ -569,6 +334,7 @@ onUnmounted(() => {
               class="hidden"
               width="640"
               height="480"
+              autoplay
               playsinline
               muted
             />
@@ -592,7 +358,7 @@ onUnmounted(() => {
                 @click="startTracking"
                 :disabled="tracking || isInitializing"
               >
-                📷 Starten
+                Starten
               </Button>
               <Button
                 size="sm"
@@ -671,7 +437,7 @@ onUnmounted(() => {
                 />
               </div>
               <div>
-                <Label class="text-xs">Rot°</Label>
+                <Label class="text-xs">Rot</Label>
                 <Input
                   type="number"
                   step="15"

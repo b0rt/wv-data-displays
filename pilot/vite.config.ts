@@ -19,6 +19,7 @@ export default defineConfig({
       '/upload': 'http://localhost:3000',
       '/uploads': 'http://localhost:3000',
       '/fonts': 'http://localhost:3000',
+      '/lib': 'http://localhost:3000',
     },
   },
 })
