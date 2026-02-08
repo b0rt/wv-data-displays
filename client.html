@@ -310,7 +310,12 @@
 <script>
 // --- Fullscreen ---
 function goFullscreen() {
-  document.documentElement.requestFullscreen().catch(() => {});
+  const el = document.documentElement;
+  const rfs = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
+  if (rfs) {
+    rfs.call(el).catch(() => {});
+  }
+  // Always dismiss the prompt (iOS doesn't support fullscreen API)
   document.getElementById('fs-prompt').classList.add('hidden');
 }
 
