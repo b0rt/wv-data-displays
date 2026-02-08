@@ -1,6 +1,6 @@
 # 🖥️ Laptop Installation – Multi-Display WebSocket System
 
-Interaktive Installation: 10 Laptops zeigen synchron Texte, Bilder und Effekte,
+Interaktive Installation: Bis zu 30 Laptops zeigen synchron Texte, Bilder und Effekte,
 gesteuert von einem Pilot-Computer im selben LAN.
 
 ## Architektur
@@ -8,29 +8,29 @@ gesteuert von einem Pilot-Computer im selben LAN.
 ```
   ┌──────────────┐      WebSocket       ┌────────────────┐
   │   Pilot UI   │ ──────────────────── │   Node.js      │
-  │  /pilot      │                      │   Server       │
-  └──────────────┘                      │   :3000        │
-                                        └───────┬────────┘
-                                                │ WebSocket
-                    ┌───────────────────────────┼───────────────────┐
-                    │         │         │        │       │           │
-                 ┌──┴──┐  ┌──┴──┐  ┌──┴──┐  ┌──┴──┐ ┌──┴──┐  ┌──┴──┐
-                 │ L1  │  │ L2  │  │ L3  │  │ L4  │ │ L5  │  │ ... │
-                 └─────┘  └─────┘  └─────┘  └─────┘ └─────┘  └─────┘
-                              10 Laptops → /client
+  │  (Vue.js)    │                      │   Server       │
+  │  /pilot      │                      │   :3000        │
+  └──────────────┘                      └───────┬────────┘
+                                               │ WebSocket
+                   ┌───────────────────────────┼───────────────────┐
+                   │         │         │        │       │           │
+                ┌──┴──┐  ┌──┴──┐  ┌──┴──┐  ┌──┴──┐ ┌──┴──┐  ┌──┴──┐
+                │ L1  │  │ L2  │  │ L3  │  │ L4  │ │ L5  │  │ ... │
+                └─────┘  └─────┘  └─────┘  └─────┘ └─────┘  └─────┘
+                                 Laptops → /
 ```
 
 ## Setup
 
 ### 1. Voraussetzungen
-- Node.js (v14+) auf dem Server-Rechner
+- Node.js (v18+) auf dem Server-Rechner
 - Alle Geräte im selben LAN/WLAN
 
 ### 2. Installation
 ```bash
-cd laptop-installation
 npm install
 ```
+Dies installiert alle Abhängigkeiten und baut die Pilot-App automatisch.
 
 ### 3. Server starten
 ```bash
@@ -39,6 +39,9 @@ npm start
 
 ### 4. IP-Adresse ermitteln
 ```bash
+# Windows:
+ipconfig
+
 # Linux/Mac:
 hostname -I
 # oder
@@ -58,20 +61,59 @@ Auf dem Steuer-Computer:
 http://<SERVER-IP>:3000/pilot
 ```
 
+## Development
+
+### Pilot-App entwickeln
+Die Pilot-Oberfläche ist eine Vue.js-App mit shadcn-vue Components.
+
+```bash
+# In das pilot-Verzeichnis wechseln
+cd pilot
+
+# Development-Server starten (mit Hot-Reload)
+npm run dev
+```
+
+Der Dev-Server läuft auf Port 5173 und proxied API-Aufrufe zum Hauptserver (Port 3000).
+Der Hauptserver muss parallel laufen (`npm start` im Root-Verzeichnis).
+
+### Pilot-App bauen
+```bash
+# Vom Root-Verzeichnis
+npm run build
+
+# Oder direkt im pilot-Verzeichnis
+cd pilot && npm run build
+```
+
+Die gebaute App wird nach `dist/pilot/` geschrieben und vom Server ausgeliefert.
+
+### Projektstruktur
+```
+├── server.js           # HTTP + WebSocket Server
+├── client.html         # Display-Interface für Laptops
+├── pilot/              # Vue.js Pilot-App
+│   ├── src/
+│   │   ├── App.vue
+│   │   ├── components/ # UI-Komponenten
+│   │   └── composables/# WebSocket-Verbindung
+│   └── package.json
+├── dist/pilot/         # Gebaute Pilot-App
+├── uploads/            # Hochgeladene Bilder
+└── fonts/              # Lokale Schriftarten
+```
+
 ## Features
 
 ### Pilot Control Panel
 - **Text senden** – mit Animationen (Fade, Schreibmaschine, Slide)
-- **Bilder senden** – per URL
+- **Bilder hochladen** – werden auf dem Server gespeichert
+- **Bilder kacheln** – ein Bild über mehrere Displays verteilen
 - **Hintergrundfarbe** – auf allen oder einzelnen Displays
 - **Effekte** – Pulsieren, Glitch, Welle, Flash
 - **Kaskade** – Text erscheint nacheinander auf jedem Display
 - **Wörter verteilen** – ein Satz wird auf alle Displays aufgeteilt
 - **Zielauswahl** – alle Displays oder einzelne ansprechen
-
-### Keyboard Shortcuts (Pilot)
-- `Ctrl+Enter` – Text senden
-- `Escape` – Alle Displays leeren
 
 ### Client Features
 - Auto-Reconnect bei Verbindungsabbruch
@@ -113,8 +155,10 @@ Exec=chromium-browser --kiosk http://<SERVER-IP>:3000/
 
 ## Erweitern
 
-Das Protokoll ist einfach erweiterbar. Neue Message-Types in `server.js`
-hinzufügen und in `client.html` in `handleMessage()` behandeln.
+Das Kommunikationsprotokoll ist JSON über WebSocket. Neue Message-Types in `server.js`
+in `handlePilotMessage()` hinzufügen und in `client.html` in `handleMessage()` behandeln.
+
+Für die Pilot-UI neue Komponenten in `pilot/src/components/panels/` erstellen.
 
 Ideen:
 - Video-Streams einbinden
