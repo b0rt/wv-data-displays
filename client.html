@@ -279,6 +279,17 @@
   }
   #status-dot.connected { background: #2ecc40; }
   #status-dot.disconnected { background: #ff4136; }
+
+  /* Eyeball container */
+  #eyeball-container {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    display: none;
+  }
+  #eyeball-container.active {
+    display: block;
+  }
 </style>
 </head>
 <body>
@@ -293,11 +304,18 @@
 <div id="canvas">
   <div id="idle-indicator">bereit</div>
 </div>
+<div id="eyeball-container"></div>
 
+<script src="/lib/three.min.js"></script>
 <script>
 // --- Fullscreen ---
 function goFullscreen() {
-  document.documentElement.requestFullscreen().catch(() => {});
+  const el = document.documentElement;
+  const rfs = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
+  if (rfs) {
+    rfs.call(el).catch(() => {});
+  }
+  // Always dismiss the prompt (iOS doesn't support fullscreen API)
   document.getElementById('fs-prompt').classList.add('hidden');
 }
 
@@ -377,6 +395,22 @@ function handleMessage(msg) {
 
     case 'effect':
       applyEffect(msg.effect, msg.duration);
+      break;
+
+    case 'show-eyeball':
+      showEyeball(msg);
+      break;
+
+    case 'eyeball-gaze':
+      updateEyeballGaze(msg);
+      break;
+
+    case 'hide-eyeball':
+      hideEyeball();
+      break;
+
+    case 'config-display':
+      configureDisplay(msg);
       break;
   }
 }
@@ -659,6 +693,245 @@ function hideIdle() {
 function showIdle() {
   const idle = document.getElementById('idle-indicator');
   if (idle) idle.style.display = 'block';
+}
+
+// --- Eyeball System ---
+let eyeballScene = null;
+let eyeballCamera = null;
+let eyeballRenderer = null;
+let eyeballGroup = null;
+let eyeballPupil = null;
+let eyeballActive = false;
+let targetGaze = { x: 0, y: 0 };
+let currentGaze = { x: 0, y: 0 };
+let displayConfig = {
+  position: { x: 0, y: 0, z: 0 },
+  rotation: 0 // facing direction in degrees (0 = toward audience)
+};
+
+function initEyeball() {
+  if (eyeballScene) return; // Already initialized
+
+  const container = document.getElementById('eyeball-container');
+
+  // Scene
+  eyeballScene = new THREE.Scene();
+  eyeballScene.background = new THREE.Color(0x0a0a0a);
+
+  // Camera
+  eyeballCamera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+  eyeballCamera.position.z = 3;
+
+  // Renderer
+  eyeballRenderer = new THREE.WebGLRenderer({ antialias: true });
+  eyeballRenderer.setSize(window.innerWidth, window.innerHeight);
+  eyeballRenderer.setPixelRatio(window.devicePixelRatio);
+  container.appendChild(eyeballRenderer.domElement);
+
+  // Eyeball group (for rotation)
+  eyeballGroup = new THREE.Group();
+  eyeballScene.add(eyeballGroup);
+
+  // Main eyeball (sclera)
+  const scleraGeometry = new THREE.SphereGeometry(1, 64, 64);
+  const scleraMaterial = new THREE.MeshPhongMaterial({
+    color: 0xf5f5f0,
+    shininess: 30
+  });
+  const sclera = new THREE.Mesh(scleraGeometry, scleraMaterial);
+  eyeballGroup.add(sclera);
+
+  // Iris
+  const irisGeometry = new THREE.SphereGeometry(0.45, 32, 32);
+  const irisMaterial = new THREE.MeshPhongMaterial({
+    color: 0x4a7c59, // Green-ish iris
+    shininess: 50
+  });
+  const iris = new THREE.Mesh(irisGeometry, irisMaterial);
+  iris.position.z = 0.88;
+  iris.scale.z = 0.3;
+  eyeballGroup.add(iris);
+
+  // Pupil
+  const pupilGeometry = new THREE.SphereGeometry(0.2, 32, 32);
+  const pupilMaterial = new THREE.MeshPhongMaterial({
+    color: 0x000000,
+    shininess: 100
+  });
+  eyeballPupil = new THREE.Mesh(pupilGeometry, pupilMaterial);
+  eyeballPupil.position.z = 0.98;
+  eyeballPupil.scale.z = 0.2;
+  eyeballGroup.add(eyeballPupil);
+
+  // Cornea (transparent layer)
+  const corneaGeometry = new THREE.SphereGeometry(1.02, 64, 64);
+  const corneaMaterial = new THREE.MeshPhongMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.1,
+    shininess: 100
+  });
+  const cornea = new THREE.Mesh(corneaGeometry, corneaMaterial);
+  eyeballGroup.add(cornea);
+
+  // Lighting
+  const ambientLight = new THREE.AmbientLight(0x404040, 0.5);
+  eyeballScene.add(ambientLight);
+
+  const mainLight = new THREE.DirectionalLight(0xffffff, 1);
+  mainLight.position.set(2, 2, 5);
+  eyeballScene.add(mainLight);
+
+  const fillLight = new THREE.DirectionalLight(0xffffff, 0.3);
+  fillLight.position.set(-2, -1, 3);
+  eyeballScene.add(fillLight);
+
+  // Add subtle red veins (optional detail)
+  addVeins();
+
+  // Handle resize
+  window.addEventListener('resize', onEyeballResize);
+
+  // Start animation loop
+  animateEyeball();
+}
+
+function addVeins() {
+  const veinMaterial = new THREE.LineBasicMaterial({
+    color: 0xcc6666,
+    transparent: true,
+    opacity: 0.3
+  });
+
+  for (let i = 0; i < 8; i++) {
+    const points = [];
+    const angle = (i / 8) * Math.PI * 2;
+    const startRadius = 0.7;
+
+    // Create branching vein
+    let x = Math.cos(angle) * startRadius;
+    let y = Math.sin(angle) * startRadius;
+    let z = Math.sqrt(1 - x*x - y*y) * 0.95;
+
+    points.push(new THREE.Vector3(x, y, z));
+
+    for (let j = 0; j < 3; j++) {
+      const r = startRadius + (j + 1) * 0.08;
+      const wiggle = (Math.random() - 0.5) * 0.1;
+      x = Math.cos(angle + wiggle) * r;
+      y = Math.sin(angle + wiggle) * r;
+      z = Math.sqrt(Math.max(0, 1 - x*x - y*y)) * 0.95;
+      points.push(new THREE.Vector3(x, y, z));
+    }
+
+    const geometry = new THREE.BufferGeometry().setFromPoints(points);
+    const vein = new THREE.Line(geometry, veinMaterial);
+    eyeballGroup.add(vein);
+  }
+}
+
+function onEyeballResize() {
+  if (!eyeballCamera || !eyeballRenderer) return;
+  eyeballCamera.aspect = window.innerWidth / window.innerHeight;
+  eyeballCamera.updateProjectionMatrix();
+  eyeballRenderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+function animateEyeball() {
+  if (!eyeballActive) {
+    requestAnimationFrame(animateEyeball);
+    return;
+  }
+
+  requestAnimationFrame(animateEyeball);
+
+  // Smooth interpolation toward target gaze
+  const smoothing = 0.08;
+  currentGaze.x += (targetGaze.x - currentGaze.x) * smoothing;
+  currentGaze.y += (targetGaze.y - currentGaze.y) * smoothing;
+
+  // Add subtle organic movement
+  const time = Date.now() * 0.001;
+  const microX = Math.sin(time * 1.5) * 0.01;
+  const microY = Math.cos(time * 1.3) * 0.01;
+
+  // Apply rotation to eyeball group
+  // Limit rotation to realistic eye movement range (~30 degrees)
+  const maxRotation = 0.5; // radians
+  eyeballGroup.rotation.y = Math.max(-maxRotation, Math.min(maxRotation, currentGaze.x + microX));
+  eyeballGroup.rotation.x = Math.max(-maxRotation, Math.min(maxRotation, -(currentGaze.y + microY)));
+
+  eyeballRenderer.render(eyeballScene, eyeballCamera);
+}
+
+function showEyeball(msg) {
+  hideIdle();
+  clearContent('instant');
+
+  // Apply color if specified
+  if (msg.irisColor) {
+    // Will be applied after init
+  }
+
+  initEyeball();
+
+  const container = document.getElementById('eyeball-container');
+  container.classList.add('active');
+  eyeballActive = true;
+
+  // Apply custom iris color if specified
+  if (msg.irisColor && eyeballGroup) {
+    const iris = eyeballGroup.children[1];
+    if (iris && iris.material) {
+      iris.material.color.setStyle(msg.irisColor);
+    }
+  }
+
+  // Apply background color
+  if (msg.bgColor && eyeballScene) {
+    eyeballScene.background = new THREE.Color(msg.bgColor);
+  }
+}
+
+function hideEyeball() {
+  const container = document.getElementById('eyeball-container');
+  container.classList.remove('active');
+  eyeballActive = false;
+  showIdle();
+}
+
+function updateEyeballGaze(msg) {
+  if (!eyeballActive) return;
+
+  // msg contains face position in world/room coordinates
+  const facePos = { x: msg.x || 0, y: msg.y || 0, z: msg.z || 5 };
+
+  // Calculate gaze direction from this display's position to face
+  const dx = facePos.x - displayConfig.position.x;
+  const dy = facePos.y - displayConfig.position.y;
+  const dz = facePos.z - displayConfig.position.z;
+
+  // Apply display rotation
+  const rotRad = displayConfig.rotation * Math.PI / 180;
+  const rotatedX = dx * Math.cos(rotRad) - dz * Math.sin(rotRad);
+  const rotatedZ = dx * Math.sin(rotRad) + dz * Math.cos(rotRad);
+
+  // Convert to normalized gaze (-1 to 1)
+  const distance = Math.sqrt(rotatedX * rotatedX + rotatedZ * rotatedZ);
+  if (distance > 0.1) {
+    targetGaze.x = Math.max(-1, Math.min(1, rotatedX / distance));
+    targetGaze.y = Math.max(-1, Math.min(1, dy / Math.max(1, distance)));
+  }
+}
+
+function configureDisplay(msg) {
+  if (msg.position) {
+    displayConfig.position = msg.position;
+  }
+  if (typeof msg.rotation === 'number') {
+    displayConfig.rotation = msg.rotation;
+  }
+  console.log('Display configured:', displayConfig);
 }
 
 // --- Start ---
