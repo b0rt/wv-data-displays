@@ -112,7 +112,14 @@ async function startTracking() {
     // @ts-ignore
     const blazeface = window.blazeface
 
-    // Wait for TensorFlow.js backend to be ready
+    // Explicitly set WebGL backend and wait for it to be ready
+    emit('log', 'Initialisiere WebGL Backend...')
+    try {
+      await tf.setBackend('webgl')
+    } catch {
+      emit('log', 'WebGL nicht verfügbar, nutze CPU...')
+      await tf.setBackend('cpu')
+    }
     await tf.ready()
     emit('log', `TensorFlow.js Backend: ${tf.getBackend()}`)
 

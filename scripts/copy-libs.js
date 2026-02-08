@@ -25,16 +25,19 @@ if (fs.existsSync(threeSrc)) {
 }
 
 // Download TensorFlow.js, BlazeFace, and model files for offline use
+// Using package root URLs (not /dist/) to match working reference implementation
 const downloads = [
   {
-    url: 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0/dist/tf.min.js',
+    url: 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0',
     dest: 'tf.min.js',
-    dir: libDir
+    dir: libDir,
+    forceDownload: true // Re-download to fix backend issue
   },
   {
-    url: 'https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface@0.0.7/dist/blazeface.min.js',
+    url: 'https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface@0.0.7',
     dest: 'blazeface.min.js',
-    dir: libDir
+    dir: libDir,
+    forceDownload: true
   },
   // BlazeFace model files from TFHub
   {
@@ -49,15 +52,20 @@ const downloads = [
   }
 ];
 
-function downloadFile(url, dest, dir) {
+function downloadFile(url, dest, dir, forceDownload = false) {
   return new Promise((resolve, reject) => {
     const destPath = path.join(dir, dest);
 
-    // Skip if already exists
-    if (fs.existsSync(destPath)) {
+    // Skip if already exists (unless force download)
+    if (!forceDownload && fs.existsSync(destPath)) {
       console.log(`✓ ${dest} already exists`);
       resolve();
       return;
+    }
+
+    // Delete existing file if force download
+    if (forceDownload && fs.existsSync(destPath)) {
+      fs.unlinkSync(destPath);
     }
 
     const file = fs.createWriteStream(destPath);
@@ -96,7 +104,7 @@ function downloadFile(url, dest, dir) {
 async function downloadAll() {
   for (const d of downloads) {
     try {
-      await downloadFile(d.url, d.dest, d.dir);
+      await downloadFile(d.url, d.dest, d.dir, d.forceDownload);
     } catch (err) {
       console.error(`✗ Failed to download ${d.dest}: ${err.message}`);
     }
