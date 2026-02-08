@@ -407,25 +407,75 @@ function showImage(msg) {
 
 function showTiledImage(msg) {
   hideIdle();
-  const { tile, url, style } = msg;
+  const { tile, url, style, preserveAspect } = msg;
   const { col, row, cols, rows } = tile;
 
+  if (preserveAspect) {
+    // Load image to get dimensions for aspect-ratio-aware tiling
+    const img = new Image();
+    img.onload = () => {
+      const imgRatio = img.naturalWidth / img.naturalHeight;
+      const vpRatio = window.innerWidth / window.innerHeight;
+
+      // Calculate scaled size to "cover" the combined display area
+      // while maintaining aspect ratio
+      let scaledW, scaledH;
+
+      // Try scaling by width first
+      scaledW = cols;
+      scaledH = cols / imgRatio * vpRatio;
+
+      if (scaledH < rows) {
+        // Width scaling doesn't cover height, scale by height instead
+        scaledH = rows;
+        scaledW = rows * imgRatio / vpRatio;
+      }
+
+      // Background size as percentage of viewport
+      const bgWidthPct = scaledW * 100;
+      const bgHeightPct = scaledH * 100;
+
+      // Center offset (excess on each side)
+      const xExcess = scaledW - cols;
+      const yExcess = scaledH - rows;
+
+      // This tile's position in the scaled image
+      const tileX = xExcess / 2 + col;
+      const tileY = yExcess / 2 + row;
+
+      // Convert to background-position percentage
+      const xPos = scaledW > 1 ? (tileX / (scaledW - 1)) * 100 : 50;
+      const yPos = scaledH > 1 ? (tileY / (scaledH - 1)) * 100 : 50;
+
+      createTileElement(url, bgWidthPct, bgHeightPct, xPos, yPos);
+    };
+    img.onerror = () => {
+      // Fallback to stretch mode on error
+      createTileElement(url, cols * 100, rows * 100,
+        cols > 1 ? (col / (cols - 1)) * 100 : 0,
+        rows > 1 ? (row / (rows - 1)) * 100 : 0
+      );
+    };
+    img.src = url;
+  } else {
+    // Original stretch behavior
+    const bgWidthPct = cols * 100;
+    const bgHeightPct = rows * 100;
+    const xPos = cols > 1 ? (col / (cols - 1)) * 100 : 0;
+    const yPos = rows > 1 ? (row / (rows - 1)) * 100 : 0;
+    createTileElement(url, bgWidthPct, bgHeightPct, xPos, yPos);
+  }
+}
+
+function createTileElement(url, bgWidth, bgHeight, xPos, yPos) {
   const layer = document.createElement('div');
   layer.className = 'content-layer';
 
   const tileEl = document.createElement('div');
   tileEl.className = 'display-tile anim-fade-in';
 
-  // Calculate background-size: scale image so each tile fills the viewport
-  // e.g., 2 cols means image width = 200%, 3 rows means image height = 300%
-  tileEl.style.backgroundSize = `${cols * 100}% ${rows * 100}%`;
-
-  // Calculate background-position to show the correct tile
-  // For col 0 of 2: 0%, for col 1 of 2: 100%
-  const xPos = cols > 1 ? (col / (cols - 1)) * 100 : 0;
-  const yPos = rows > 1 ? (row / (rows - 1)) * 100 : 0;
+  tileEl.style.backgroundSize = `${bgWidth}% ${bgHeight}%`;
   tileEl.style.backgroundPosition = `${xPos}% ${yPos}%`;
-
   tileEl.style.backgroundImage = `url('${url}')`;
 
   layer.appendChild(tileEl);

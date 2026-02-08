@@ -271,6 +271,7 @@ function handlePilotMessage(msg) {
           style: msg.style || "fade",
           target: info.id,
           id: Date.now() + index,
+          preserveAspect: msg.preserveAspect !== false,
           tile: {
             col: col,
             row: row,

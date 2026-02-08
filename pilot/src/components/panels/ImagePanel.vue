@@ -25,6 +25,7 @@ const fit = ref('contain')
 const style = ref('fade')
 const tileCols = ref(5)
 const tileRows = ref(2)
+const preserveAspect = ref(true)
 
 const tileInfo = computed(() => {
   const total = tileCols.value * tileRows.value
@@ -135,9 +136,10 @@ function sendTiledImage() {
     cols: tileCols.value,
     rows: tileRows.value,
     style: style.value,
+    preserveAspect: preserveAspect.value,
   })
 
-  emit('log', `Gekacheltes Bild gesendet: ${tileCols.value}×${tileRows.value} Raster`)
+  emit('log', `Gekacheltes Bild gesendet: ${tileCols.value}×${tileRows.value} Raster${preserveAspect.value ? ' (Seitenverhältnis)' : ''}`)
 }
 </script>
 
@@ -255,6 +257,15 @@ function sendTiledImage() {
         >
           {{ tileInfo.text }}
         </div>
+
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            v-model="preserveAspect"
+            class="w-4 h-4 rounded border-border"
+          />
+          <span class="text-sm">Seitenverhältnis beibehalten</span>
+        </label>
 
         <Button @click="sendTiledImage" :disabled="!currentImage">
           🔲 Gekachelt senden
