@@ -7,12 +7,13 @@
     "start": "node server.js",
     "build": "cd pilot && npm run build",
     "build:pilot": "cd pilot && npm run build",
-    "postinstall": "node scripts/copy-fonts.js && cd pilot && npm install"
+    "postinstall": "node scripts/copy-fonts.js && node scripts/copy-libs.js && cd pilot && npm install"
   },
   "dependencies": {
     "@fontsource/jetbrains-mono": "^5.0.0",
     "@fontsource/playfair-display": "^5.0.0",
     "@fontsource/space-mono": "^5.0.0",
+    "three": "^0.160.1",
     "ws": "^8.16.0"
   }
 }

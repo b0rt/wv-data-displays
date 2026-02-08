@@ -135,6 +135,11 @@ const clientServer = http.createServer((req, res) => {
     const ext = path.extname(req.url).toLowerCase();
     const contentType = mimeTypes[ext] || "application/octet-stream";
     serveFile(res, fontPath, contentType);
+  } else if (req.url.startsWith("/lib/")) {
+    const libPath = path.join(__dirname, req.url);
+    const ext = path.extname(req.url).toLowerCase();
+    const contentType = mimeTypes[ext] || "application/octet-stream";
+    serveFile(res, libPath, contentType);
   } else if (req.url.startsWith("/uploads/")) {
     const filePath = path.join(__dirname, req.url);
     const ext = path.extname(req.url).toLowerCase();
@@ -432,6 +437,54 @@ function handlePilotMessage(msg) {
         playing: msg.playing
       };
       broadcastToClients(content);
+      break;
+    }
+
+    case "show-eyeball": {
+      const content = {
+        type: "show-eyeball",
+        target: msg.target || "all",
+        irisColor: msg.irisColor,
+        bgColor: msg.bgColor
+      };
+      broadcastToClients(content);
+      console.log(`👁️  Eyeball activated on ${msg.target || "all"}`);
+      break;
+    }
+
+    case "hide-eyeball": {
+      const content = {
+        type: "hide-eyeball",
+        target: msg.target || "all"
+      };
+      broadcastToClients(content);
+      console.log(`👁️  Eyeball hidden on ${msg.target || "all"}`);
+      break;
+    }
+
+    case "eyeball-gaze": {
+      // Broadcast face position to all clients for gaze calculation
+      const content = {
+        type: "eyeball-gaze",
+        target: msg.target || "all",
+        x: msg.x,
+        y: msg.y,
+        z: msg.z
+      };
+      broadcastToClients(content);
+      break;
+    }
+
+    case "config-display": {
+      // Configure a specific display's position in the room
+      const content = {
+        type: "config-display",
+        target: msg.target,
+        position: msg.position,
+        rotation: msg.rotation
+      };
+      broadcastToClients(content);
+      console.log(`📍 Display ${msg.target} configured: pos(${msg.position?.x}, ${msg.position?.y}, ${msg.position?.z}) rot(${msg.rotation}°)`);
       break;
     }
   }

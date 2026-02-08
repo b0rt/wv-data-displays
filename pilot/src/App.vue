@@ -5,6 +5,7 @@ import ClientList from '@/components/ClientList.vue'
 import TextPanel from '@/components/panels/TextPanel.vue'
 import ImagePanel from '@/components/panels/ImagePanel.vue'
 import VideoPanel from '@/components/panels/VideoPanel.vue'
+import EyeballPanel from '@/components/panels/EyeballPanel.vue'
 import BackgroundPanel from '@/components/panels/BackgroundPanel.vue'
 import EffectsPanel from '@/components/panels/EffectsPanel.vue'
 import ControlPanel from '@/components/panels/ControlPanel.vue'
@@ -86,6 +87,13 @@ onUnmounted(() => {
 
         <VideoPanel
           :selectedTarget="selectedTarget"
+          @send="handleSend"
+          @log="handleLog"
+        />
+
+        <EyeballPanel
+          :selectedTarget="selectedTarget"
+          :clients="clients"
           @send="handleSend"
           @log="handleLog"
         />
