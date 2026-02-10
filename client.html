@@ -317,6 +317,8 @@ function goFullscreen() {
   }
   // Always dismiss the prompt (iOS doesn't support fullscreen API)
   document.getElementById('fs-prompt').classList.add('hidden');
+  // User gesture allows video playback on Android — activate wake lock
+  requestWakeLock();
 }
 
 // --- WebSocket ---
@@ -936,28 +938,53 @@ function configureDisplay(msg) {
 
 // --- Wake Lock (prevent screen sleep) ---
 let wakeLock = null;
+let noSleepVideo = null;
 
 async function requestWakeLock() {
-  if (!('wakeLock' in navigator)) {
-    console.log('Wake Lock API not supported');
-    return;
+  // Try modern Wake Lock API first
+  if ('wakeLock' in navigator) {
+    try {
+      wakeLock = await navigator.wakeLock.request('screen');
+      console.log('Wake Lock active');
+      wakeLock.addEventListener('release', () => {
+        console.log('Wake Lock released');
+        wakeLock = null;
+      });
+      return;
+    } catch (err) {
+      console.log('Wake Lock failed:', err.message);
+    }
   }
-  try {
-    wakeLock = await navigator.wakeLock.request('screen');
-    console.log('Wake Lock active');
-    wakeLock.addEventListener('release', () => {
-      console.log('Wake Lock released');
-      wakeLock = null;
-    });
-  } catch (err) {
-    console.log('Wake Lock failed:', err.message);
+
+  // Fallback: silent video loop (works on older Android/Chrome)
+  if (!noSleepVideo) {
+    noSleepVideo = document.createElement('video');
+    noSleepVideo.setAttribute('playsinline', '');
+    noSleepVideo.setAttribute('webkit-playsinline', '');
+    noSleepVideo.style.position = 'fixed';
+    noSleepVideo.style.top = '-1px';
+    noSleepVideo.style.left = '-1px';
+    noSleepVideo.style.width = '1px';
+    noSleepVideo.style.height = '1px';
+    noSleepVideo.style.opacity = '0.01';
+    // Tiny silent webm video (base64)
+    noSleepVideo.src = 'data:video/webm;base64,GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwH/////////FUmpZpkq17GDD0JATYCGQ2hyb21lV0WcQ0FOU0GWQB9DtnVBXueBAXPFgQGcgQAAgQBiZIEgY6KBACCqg4EBI0CYb8IAAABUSOn5OAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmAQAAAAAAADIq17GDD0JATYCGQ2hyb21lV0WcQ0FOU0GWQB9DtnVBXueBAXPFgQGcgQAAgQBiZIEgY6KBACCBB0FMsAEAAAAAAAAMq4F3RQAAAAAAZAAAAA==';
+    noSleepVideo.loop = true;
+    noSleepVideo.muted = true;
+    document.body.appendChild(noSleepVideo);
   }
+  noSleepVideo.play().then(() => {
+    console.log('Wake Lock active (video fallback)');
+  }).catch(err => {
+    console.log('Video wake lock failed:', err.message);
+  });
 }
 
 // Re-acquire wake lock when tab becomes visible again
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && !wakeLock) {
-    requestWakeLock();
+  if (document.visibilityState === 'visible') {
+    if (!wakeLock && !noSleepVideo) requestWakeLock();
+    else if (noSleepVideo && noSleepVideo.paused) noSleepVideo.play().catch(() => {});
   }
 });
 
