@@ -29,8 +29,10 @@ gesteuert von einem Pilot-Computer im selben LAN.
 ### 2. Installation
 ```bash
 npm install
+npm run build
 ```
-Dies installiert alle Abhängigkeiten und baut die Pilot-App automatisch.
+`npm install` installiert alle Abhängigkeiten (inkl. Pilot-App und Schriftarten).
+`npm run build` baut die Pilot-App nach `dist/pilot/`.
 
 ### 3. Server starten
 ```bash
@@ -98,8 +100,11 @@ Die gebaute App wird nach `dist/pilot/` geschrieben und vom Server ausgeliefert.
 │   │   ├── components/ # UI-Komponenten
 │   │   └── composables/# WebSocket-Verbindung
 │   └── package.json
+├── ansible/            # Ansible Kiosk-Provisioning (siehe unten)
+├── scripts/            # Postinstall-Skripte (Fonts, Libs kopieren)
 ├── dist/pilot/         # Gebaute Pilot-App
-├── uploads/            # Hochgeladene Bilder
+├── uploads/            # Hochgeladene Medien (Bilder, Videos)
+├── lib/                # Client-seitige Libraries (Three.js etc.)
 └── fonts/              # Lokale Schriftarten
 ```
 
@@ -109,10 +114,12 @@ Die gebaute App wird nach `dist/pilot/` geschrieben und vom Server ausgeliefert.
 - **Text senden** – mit Animationen (Fade, Schreibmaschine, Slide)
 - **Bilder hochladen** – werden auf dem Server gespeichert
 - **Bilder kacheln** – ein Bild über mehrere Displays verteilen
+- **Videos senden** – Upload und Wiedergabe mit Play/Pause/Sync-Steuerung
 - **Hintergrundfarbe** – auf allen oder einzelnen Displays
 - **Effekte** – Pulsieren, Glitch, Welle, Flash
 - **Kaskade** – Text erscheint nacheinander auf jedem Display
 - **Wörter verteilen** – ein Satz wird auf alle Displays aufgeteilt
+- **Eyeball/Gaze-Tracking** – 3D-Auge mit Blickverfolgung via Kamera (MediaPipe)
 - **Zielauswahl** – alle Displays oder einzelne ansprechen
 
 ### Client Features
@@ -153,6 +160,65 @@ Name=Installation Display
 Exec=chromium-browser --kiosk http://<SERVER-IP>:3000/
 ```
 
+## Ansible Kiosk-Provisioning
+
+Im Verzeichnis `ansible/` liegt eine Ansible-Konfiguration zur automatischen Einrichtung von
+Client-PCs als Kiosk-Displays. Damit lassen sich beliebig viele Laptops per Kommando als
+dedizierte Displays konfigurieren – inklusive Autologin, Firefox-Kiosk, Screensaver-Deaktivierung u.v.m.
+
+### Was wird konfiguriert?
+
+- Firefox im Kiosk-Modus mit automatischem Start und Reconnect-Loop
+- Autologin (LightDM oder SDDM)
+- Firefox Enterprise Policies (keine Updates, keine Telemetrie, Homepage gelockt)
+- Bildschirmschoner und DPMS deaktiviert
+- Mauszeiger automatisch versteckt
+- Audio stummgeschaltet
+- Sleep/Suspend/Hibernate deaktiviert
+
+### Unterstützte Distributionen
+
+| Distribution      | Display-Manager | Firefox-Paket     |
+|-------------------|-----------------|-------------------|
+| MX Linux 25.1     | LightDM         | `firefox-esr`     |
+| openSUSE          | SDDM            | `MozillaFirefox`  |
+
+### Schnellstart
+
+```bash
+cd ansible/
+
+# Inventory aus Template erstellen und IPs anpassen
+cp inventories/hosts.yml.example inventories/hosts.yml
+
+# Server-IP in group_vars/all.yml setzen
+# tessella_server_ip: "192.168.1.100"
+
+# SSH-Schlüssel auf Clients verteilen
+ssh-copy-id <user>@<client-ip>
+
+# Alle Clients provisionieren
+ansible-playbook site.yml
+
+# Nur bestimmte Gruppe
+ansible-playbook site.yml --limit clients_mx
+
+# Trockenlauf
+ansible-playbook site.yml --check --diff
+```
+
+### Voraussetzungen
+
+- Ansible >= 2.14 auf dem Steuerrechner
+- SSH-Zugang + sudo-Rechte auf allen Clients
+- Python 3 auf den Clients
+- Tessella-Server läuft und ist im LAN erreichbar
+
+> **Hinweis:** Der Tessella-Server selbst wird **nicht** von Ansible verwaltet.
+
+Alle Features sind über Boolean-Flags in `group_vars/all.yml` einzeln steuerbar.
+Ausführliche Dokumentation: [`ansible/README.md`](ansible/README.md)
+
 ## Erweitern
 
 Das Kommunikationsprotokoll ist JSON über WebSocket. Neue Message-Types in `server.js`
@@ -160,8 +226,12 @@ in `handlePilotMessage()` hinzufügen und in `client.html` in `handleMessage()` 
 
 Für die Pilot-UI neue Komponenten in `pilot/src/components/panels/` erstellen.
 
+Bestehende Message-Types:
+`send-text`, `send-image`, `send-tiled-image`, `send-video`, `video-control`,
+`send-color`, `cascade-text`, `cascade-words`, `clear`, `effect`,
+`show-eyeball`, `hide-eyeball`, `eyeball-gaze`, `config-display`
+
 Ideen:
-- Video-Streams einbinden
 - Audio-Synchronisation
 - Resolume-Integration via OSC
 - Interaktive Inputs (Kamera, Mikrofon)
