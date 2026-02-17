@@ -247,3 +247,14 @@
     - hibernate.target
     - hybrid-sleep.target
   when: not tessella_client_disable_power_management
+
+# ╔═══════════════════════════════════════════════════════════════════════════╗
+# ║ Neustart                                                                 ║
+# ╚═══════════════════════════════════════════════════════════════════════════╝
+
+# --- System nach Provisionierung neu starten ---------------------------------
+- name: System nach Provisionierung neu starten
+  ansible.builtin.reboot:
+    msg: "Neustart durch Tessella-Provisionierung"
+    reboot_timeout: 300
+  when: tessella_client_reboot_after_provision
